@@ -100,7 +100,7 @@ async def get_analysis_status(analysis_id: str):
     db = get_supabase()
     result = (
         db.table("analyses")
-        .select("id, status, brand_name, completed_at")
+        .select("id, status, brand_name, completed_at, progress")
         .eq("id", analysis_id)
         .execute()
     )

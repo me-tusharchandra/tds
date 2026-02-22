@@ -3,64 +3,45 @@ import logging
 from openai import AsyncOpenAI
 
 from app.config import get_settings
+from app.services.citation_parser import SearchResult, extract_citations_from_response
+from app.services.cost_tracker import CostTracker, extract_cost_from_response
 
 logger = logging.getLogger(__name__)
 
+MODEL = "openai/gpt-4o"
 
-async def search(prompt: str) -> list[dict]:
-    """Query OpenAI with web search and extract citations.
 
-    Returns list of dicts with keys: url, title, snippet, position
-    """
+async def search(prompt: str, cost_tracker: CostTracker | None = None) -> SearchResult:
+    """Query GPT-4o with web search via OpenRouter and extract citations."""
     settings = get_settings()
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
+    client = AsyncOpenAI(
+        api_key=settings.openrouter_api_key,
+        base_url=settings.openrouter_base_url,
+    )
 
     try:
-        response = await client.responses.create(
-            model="gpt-4o",
-            tools=[
+        response = await client.chat.completions.create(
+            model=MODEL,
+            messages=[
                 {
-                    "type": "web_search_preview",
-                    "search_context_size": "high",
-                    "user_location": {"type": "approximate", "country": "US"},
-                }
+                    "role": "system",
+                    "content": "Provide detailed information with specific tool, platform, and company recommendations. Cite your sources.",
+                },
+                {"role": "user", "content": prompt},
             ],
-            tool_choice={"type": "web_search_preview"},
-            input=prompt,
+            extra_body={
+                "plugins": [{"id": "web", "max_results": 10}],
+            },
         )
 
-        citations = []
-        seen_urls: set[str] = set()
-        position = 1
+        if cost_tracker:
+            pt, ct, cost = extract_cost_from_response(response)
+            cost_tracker.record("openai", MODEL, pt, ct, cost)
 
-        for item in response.output:
-            if item.type == "message":
-                for content in item.content:
-                    if content.type == "output_text":
-                        for annotation in content.annotations:
-                            if (
-                                annotation.type == "url_citation"
-                                and annotation.url not in seen_urls
-                            ):
-                                seen_urls.add(annotation.url)
-                                # Extract snippet from surrounding text
-                                text = content.text
-                                start = max(0, annotation.start_index - 50)
-                                end = min(len(text), annotation.end_index + 50)
-                                snippet = text[start:end].strip()
-
-                                citations.append(
-                                    {
-                                        "url": annotation.url,
-                                        "title": annotation.title or "",
-                                        "snippet": snippet,
-                                        "position": position,
-                                    }
-                                )
-                                position += 1
-
-        return citations
+        citations = extract_citations_from_response(response)
+        response_text = response.choices[0].message.content or ""
+        return SearchResult(citations=citations, response_text=response_text)
 
     except Exception as e:
         logger.error(f"OpenAI search failed for prompt '{prompt[:50]}': {e}")
-        return []
+        return SearchResult()

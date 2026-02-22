@@ -3,15 +3,13 @@ import logging
 from exa_py import Exa
 
 from app.config import get_settings
+from app.services.cost_tracker import CostTracker
 
 logger = logging.getLogger(__name__)
 
 
-async def search(prompt: str) -> list[dict]:
-    """Query Exa AI search and extract citations.
-
-    Returns list of dicts with keys: url, title, snippet, position
-    """
+async def search(prompt: str, cost_tracker: CostTracker | None = None) -> list[dict]:
+    """Query Exa AI search and extract citations."""
     settings = get_settings()
     exa = Exa(api_key=settings.exa_api_key)
 
@@ -22,6 +20,9 @@ async def search(prompt: str) -> list[dict]:
             type="auto",
             contents={"text": {"max_characters": 500}},
         )
+
+        if cost_tracker:
+            cost_tracker.record_exa("search")
 
         citations = []
         seen_urls: set[str] = set()

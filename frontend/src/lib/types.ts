@@ -1,8 +1,23 @@
+export interface AnalysisProgress {
+  competitors_found?: number;
+  prompts_generated?: number;
+  engines?: Record<string, { completed: number; total: number }>;
+  citations_found?: number;
+  brands_found?: number;
+}
+
 export interface Analysis {
   id: string;
   brand_url: string;
   brand_name: string | null;
-  status: "pending" | "discovering" | "analyzing" | "completed" | "failed";
+  status:
+    | "pending"
+    | "discovering"
+    | "generating_prompts"
+    | "querying_engines"
+    | "scoring"
+    | "completed"
+    | "failed";
   created_at: string;
   completed_at: string | null;
 }
@@ -22,6 +37,7 @@ export interface Competitor {
     string,
     { visibility_score: number; citation_count: number }
   > | null;
+  brand_mention_count: number | null;
 }
 
 export interface Citation {
@@ -34,6 +50,7 @@ export interface Citation {
   snippet: string | null;
   competitor_name: string | null;
   prompt_text: string | null;
+  mentioned_brands: string[];
 }
 
 export interface EngineScore {
@@ -70,6 +87,29 @@ export interface PromptResult {
   prompt_text: string;
   category: string | null;
   citations: Citation[];
+}
+
+export interface TopCitedBrand {
+  domain: string;
+  citation_count: number;
+  avg_position: number | null;
+  engines: string[];
+  sample_urls: string[];
+  sample_title: string | null;
+  is_primary: boolean;
+}
+
+export interface BrandMention {
+  brand_name: string;
+  normalized_name: string;
+  mention_count: number;
+  avg_position: number | null;
+  engines: string[];
+  prompt_count: number;
+  presence_rate: number | null;
+  competitor_name: string | null;
+  is_primary: boolean;
+  sample_contexts: string[];
 }
 
 export const ENGINE_LABELS: Record<string, string> = {

@@ -3,15 +3,16 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    openai_api_key: str = ""
-    google_api_key: str = ""
-    perplexity_api_key: str = ""
+    # OpenRouter - single API key for all LLMs
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+
+    # Exa AI - direct API (not an LLM, separate service)
     exa_api_key: str = ""
 
     # Supabase Python client (REST API via PostgREST)
-    # Found in: Project Settings → API
-    supabase_url: str = ""  # e.g. https://abc123.supabase.co
-    supabase_key: str = ""  # service_role key (server-side, bypasses RLS)
+    supabase_url: str = ""
+    supabase_key: str = ""
 
     # Rate limiting
     max_concurrent_engines: int = 4

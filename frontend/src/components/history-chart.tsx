@@ -37,7 +37,6 @@ export function HistoryChart({ entries }: Props) {
   const data = entries.map((e) => ({
     date: new Date(e.created_at).toLocaleDateString(),
     visibility: e.visibility_score,
-    sov: e.share_of_voice,
     citations: e.citation_count,
   }));
 
@@ -65,10 +64,10 @@ export function HistoryChart({ entries }: Props) {
             />
             <Line
               type="monotone"
-              dataKey="sov"
+              dataKey="citations"
               stroke="hsl(160, 60%, 45%)"
               strokeWidth={2}
-              name="Share of Voice"
+              name="Citations"
               dot={{ fill: "hsl(160, 60%, 45%)" }}
             />
           </LineChart>

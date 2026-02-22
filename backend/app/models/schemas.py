@@ -41,6 +41,7 @@ class CompetitorResult(BaseModel):
     citation_count: Optional[int] = None
     avg_position: Optional[float] = None
     engines: Optional[dict] = None
+    brand_mention_count: Optional[int] = None
 
 
 class CitationResult(BaseModel):
@@ -53,6 +54,7 @@ class CitationResult(BaseModel):
     snippet: Optional[str] = None
     competitor_name: Optional[str] = None
     prompt_text: Optional[str] = None
+    mentioned_brands: list[str] = []
 
 
 class EngineScore(BaseModel):
@@ -112,3 +114,35 @@ class PromptResultEntry(BaseModel):
 
 class PromptResultsResponse(BaseModel):
     prompts: list[PromptResultEntry]
+
+
+class TopCitedBrand(BaseModel):
+    domain: str
+    citation_count: int
+    avg_position: Optional[float] = None
+    engines: list[str]  # which engines cited this domain
+    sample_urls: list[str]  # example cited URLs
+    sample_title: Optional[str] = None
+    is_primary: bool = False  # true for the user's own brand
+
+
+class TopCitedBrandsResponse(BaseModel):
+    brands: list[TopCitedBrand]
+
+
+class BrandMention(BaseModel):
+    brand_name: str
+    normalized_name: str
+    mention_count: int
+    avg_position: Optional[float] = None
+    engines: list[str]
+    prompt_count: int
+    presence_rate: Optional[float] = None
+    competitor_name: Optional[str] = None
+    is_primary: bool = False
+    sample_contexts: list[str] = []
+
+
+class BrandMentionsResponse(BaseModel):
+    brands: list[BrandMention]
+    total: int

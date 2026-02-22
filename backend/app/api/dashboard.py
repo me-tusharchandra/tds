@@ -2,7 +2,11 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
+from collections import defaultdict
+
 from app.models.schemas import (
+    BrandMention,
+    BrandMentionsResponse,
     CitationListResponse,
     CitationResult,
     CompetitorListResponse,
@@ -14,6 +18,8 @@ from app.models.schemas import (
     OverviewResponse,
     PromptResultEntry,
     PromptResultsResponse,
+    TopCitedBrand,
+    TopCitedBrandsResponse,
 )
 from app.services.supabase_client import get_supabase
 
@@ -135,6 +141,22 @@ async def get_competitors(analysis_id: str):
             score_map[comp_id] = {}
         score_map[comp_id][s["engine"]] = s
 
+    # Get brand mention counts per competitor
+    mention_counts: dict[str, int] = {}
+    try:
+        mentions = (
+            db.table("brand_mentions")
+            .select("competitor_id")
+            .eq("analysis_id", analysis_id)
+            .not_.is_("competitor_id", "null")
+            .execute()
+        )
+        for m in mentions.data:
+            cid = m["competitor_id"]
+            mention_counts[cid] = mention_counts.get(cid, 0) + 1
+    except Exception:
+        pass  # Table may not exist for older analyses
+
     results = []
     for c in comps.data:
         comp_scores = score_map.get(c["id"], {})
@@ -161,6 +183,7 @@ async def get_competitors(analysis_id: str):
                 citation_count=overall.get("citation_count", 0),
                 avg_position=overall.get("avg_position"),
                 engines=engine_breakdown,
+                brand_mention_count=mention_counts.get(c["id"]),
             )
         )
 
@@ -189,6 +212,32 @@ async def get_citations(analysis_id: str, engine: str | None = None):
 
     result = query.execute()
 
+    # Fetch brand mentions to map brands → citations via source_citations
+    brand_lookup: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    try:
+        mentions = (
+            db.table("brand_mentions")
+            .select("brand_name, prompt_id, engine, source_citations")
+            .eq("analysis_id", analysis_id)
+            .execute()
+        )
+        for m in (mentions.data or []):
+            key = (m["prompt_id"], m["engine"])
+            brand_lookup[key].append(m)
+    except Exception:
+        pass  # Graceful fallback for old analyses without source_citations
+
+    def _get_mentioned_brands(prompt_id: str, cite_engine: str, cite_position: int | None) -> list[str]:
+        """Find brands whose source_citations include this citation's position."""
+        if cite_position is None:
+            return []
+        brands = []
+        for m in brand_lookup.get((prompt_id, cite_engine), []):
+            sc = m.get("source_citations") or []
+            if cite_position in sc:
+                brands.append(m["brand_name"])
+        return brands
+
     citations = [
         CitationResult(
             id=c["id"],
@@ -203,6 +252,9 @@ async def get_citations(analysis_id: str, engine: str | None = None):
             ),
             prompt_text=(
                 c["prompts"]["prompt_text"] if c.get("prompts") else None
+            ),
+            mentioned_brands=_get_mentioned_brands(
+                c.get("prompt_id", ""), c["engine"], c.get("position")
             ),
         )
         for c in result.data
@@ -344,6 +396,31 @@ async def get_prompt_results(analysis_id: str):
         .execute()
     )
 
+    # Fetch all brand mentions for this analysis to map to citations
+    brand_lookup: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    try:
+        all_mentions = (
+            db.table("brand_mentions")
+            .select("brand_name, prompt_id, engine, source_citations")
+            .eq("analysis_id", analysis_id)
+            .execute()
+        )
+        for m in (all_mentions.data or []):
+            key = (m["prompt_id"], m["engine"])
+            brand_lookup[key].append(m)
+    except Exception:
+        pass
+
+    def _get_mentioned_brands(prompt_id: str, cite_engine: str, cite_position: int | None) -> list[str]:
+        if cite_position is None:
+            return []
+        brands = []
+        for m in brand_lookup.get((prompt_id, cite_engine), []):
+            sc = m.get("source_citations") or []
+            if cite_position in sc:
+                brands.append(m["brand_name"])
+        return brands
+
     result_prompts = []
     for p in prompts.data:
         citations_data = (
@@ -368,6 +445,9 @@ async def get_prompt_results(analysis_id: str):
                     c["competitors"]["name"] if c.get("competitors") else None
                 ),
                 prompt_text=p["prompt_text"],
+                mentioned_brands=_get_mentioned_brands(
+                    p["id"], c["engine"], c.get("position")
+                ),
             )
             for c in citations_data.data
         ]
@@ -382,3 +462,234 @@ async def get_prompt_results(analysis_id: str):
         )
 
     return PromptResultsResponse(prompts=result_prompts)
+
+
+@router.get(
+    "/analyses/{analysis_id}/top-cited", response_model=TopCitedBrandsResponse
+)
+async def get_top_cited_brands(analysis_id: str):
+    """Get top 5 most-cited domains from actual citation data.
+
+    Always includes the user's own brand domain (marked is_primary),
+    even if it's not in the top 5.
+    """
+    db = get_supabase()
+    analysis = _get_analysis_or_404(db, analysis_id)
+
+    # Get the primary brand's domain
+    brand_comp = (
+        db.table("competitors")
+        .select("domain")
+        .eq("analysis_id", analysis_id)
+        .eq("is_primary", True)
+        .execute()
+    )
+    brand_domain = brand_comp.data[0].get("domain") if brand_comp.data else None
+
+    citations = (
+        db.table("citations")
+        .select("cited_domain, cited_url, cited_title, engine, position")
+        .eq("analysis_id", analysis_id)
+        .execute()
+    )
+
+    # Aggregate by domain
+    domain_data: dict[str, dict] = defaultdict(
+        lambda: {
+            "count": 0,
+            "positions": [],
+            "engines": set(),
+            "urls": [],
+            "title": None,
+        }
+    )
+
+    for c in citations.data:
+        domain = c.get("cited_domain") or "unknown"
+        d = domain_data[domain]
+        d["count"] += 1
+        if c.get("position"):
+            d["positions"].append(c["position"])
+        d["engines"].add(c["engine"])
+        if c["cited_url"] not in d["urls"]:
+            d["urls"].append(c["cited_url"])
+        if not d["title"] and c.get("cited_title"):
+            d["title"] = c["cited_title"]
+
+    # Sort by citation count
+    sorted_domains = sorted(
+        domain_data.items(), key=lambda x: x[1]["count"], reverse=True
+    )
+
+    # Take top 5
+    top_domains = sorted_domains[:5]
+    top_domain_names = {d[0] for d in top_domains}
+
+    # Ensure brand domain is included even if not in top 5
+    brand_entry_from_overflow = None
+    if brand_domain and brand_domain not in top_domain_names:
+        # Find it in the full list
+        for domain, data in sorted_domains:
+            if domain == brand_domain:
+                brand_entry_from_overflow = (domain, data)
+                break
+
+    def _make_brand(domain: str, data: dict, is_primary: bool) -> TopCitedBrand:
+        avg_pos = (
+            sum(data["positions"]) / len(data["positions"])
+            if data["positions"]
+            else None
+        )
+        return TopCitedBrand(
+            domain=domain,
+            citation_count=data["count"],
+            avg_position=round(avg_pos, 1) if avg_pos else None,
+            engines=sorted(data["engines"]),
+            sample_urls=data["urls"][:3],
+            sample_title=data["title"],
+            is_primary=is_primary,
+        )
+
+    brands = []
+    for domain, data in top_domains:
+        is_primary = brand_domain is not None and domain == brand_domain
+        brands.append(_make_brand(domain, data, is_primary))
+
+    # If brand wasn't in top 5 but has citations, append it
+    if brand_entry_from_overflow:
+        brands.append(_make_brand(brand_entry_from_overflow[0], brand_entry_from_overflow[1], True))
+    # If brand has zero citations, still show it
+    elif brand_domain and brand_domain not in top_domain_names and brand_domain not in domain_data:
+        brands.append(
+            TopCitedBrand(
+                domain=brand_domain,
+                citation_count=0,
+                avg_position=None,
+                engines=[],
+                sample_urls=[],
+                sample_title=None,
+                is_primary=True,
+            )
+        )
+
+    return TopCitedBrandsResponse(brands=brands)
+
+
+@router.get(
+    "/analyses/{analysis_id}/brand-mentions",
+    response_model=BrandMentionsResponse,
+)
+async def get_brand_mentions(analysis_id: str):
+    """Get aggregated brand mentions extracted from AI engine responses."""
+    db = get_supabase()
+    analysis = _get_analysis_or_404(db, analysis_id)
+
+    # Get primary brand info so we can always include it
+    brand_comp = (
+        db.table("competitors")
+        .select("id, name, domain")
+        .eq("analysis_id", analysis_id)
+        .eq("is_primary", True)
+        .execute()
+    )
+    brand_name = brand_comp.data[0]["name"] if brand_comp.data else None
+    brand_comp_id = brand_comp.data[0]["id"] if brand_comp.data else None
+
+    try:
+        mentions = (
+            db.table("brand_mentions")
+            .select("*, competitors(name, is_primary)")
+            .eq("analysis_id", analysis_id)
+            .execute()
+        )
+    except Exception:
+        # Table may not exist for older analyses
+        return BrandMentionsResponse(brands=[], total=0)
+
+    # Get total prompt count for presence rate calculation
+    prompt_count = (
+        db.table("prompts")
+        .select("id", count="exact")
+        .eq("analysis_id", analysis_id)
+        .execute()
+    )
+    total_prompts = prompt_count.count or 1
+
+    # Aggregate by normalized_name
+    brand_data: dict[str, dict] = {}
+    found_primary = False
+
+    for m in (mentions.data or []):
+        norm = m["normalized_name"]
+        if norm not in brand_data:
+            brand_data[norm] = {
+                "brand_name": m["brand_name"],
+                "normalized_name": norm,
+                "count": 0,
+                "positions": [],
+                "engines": set(),
+                "prompt_ids": set(),
+                "competitor_name": None,
+                "is_primary": False,
+                "contexts": [],
+            }
+
+        d = brand_data[norm]
+        d["count"] += 1
+        if m.get("position"):
+            d["positions"].append(m["position"])
+        d["engines"].add(m["engine"])
+        if m.get("prompt_id"):
+            d["prompt_ids"].add(m["prompt_id"])
+        if m.get("context") and len(d["contexts"]) < 3:
+            d["contexts"].append(m["context"])
+
+        comp = m.get("competitors")
+        if comp:
+            d["competitor_name"] = comp.get("name")
+            if comp.get("is_primary", False):
+                d["is_primary"] = True
+                found_primary = True
+
+    # Build response sorted by mention count
+    brands = []
+    for norm, d in sorted(brand_data.items(), key=lambda x: -x[1]["count"]):
+        avg_pos = (
+            sum(d["positions"]) / len(d["positions"]) if d["positions"] else None
+        )
+        prompt_count_for_brand = len(d["prompt_ids"])
+        presence = prompt_count_for_brand / total_prompts if total_prompts > 0 else 0
+
+        brands.append(
+            BrandMention(
+                brand_name=d["brand_name"],
+                normalized_name=d["normalized_name"],
+                mention_count=d["count"],
+                avg_position=round(avg_pos, 1) if avg_pos else None,
+                engines=sorted(d["engines"]),
+                prompt_count=prompt_count_for_brand,
+                presence_rate=round(presence * 100, 1),
+                competitor_name=d["competitor_name"],
+                is_primary=d["is_primary"],
+                sample_contexts=d["contexts"],
+            )
+        )
+
+    # Always include the primary brand, even with 0 mentions
+    if not found_primary and brand_name:
+        brands.append(
+            BrandMention(
+                brand_name=brand_name,
+                normalized_name=brand_name.strip().lower(),
+                mention_count=0,
+                avg_position=None,
+                engines=[],
+                prompt_count=0,
+                presence_rate=0,
+                competitor_name=brand_name,
+                is_primary=True,
+                sample_contexts=[],
+            )
+        )
+
+    return BrandMentionsResponse(brands=brands, total=len(brands))

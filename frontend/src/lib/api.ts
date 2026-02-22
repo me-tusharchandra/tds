@@ -35,9 +35,12 @@ export function listAnalyses() {
 }
 
 export function getAnalysisStatus(id: string) {
-  return fetchApi<{ id: string; status: string; brand_name: string | null }>(
-    `/api/analyses/${id}/status`
-  );
+  return fetchApi<{
+    id: string;
+    status: string;
+    brand_name: string | null;
+    progress: import("./types").AnalysisProgress | null;
+  }>(`/api/analyses/${id}/status`);
 }
 
 // Dashboard
@@ -48,6 +51,8 @@ import type {
   EngineScore,
   HistoryEntry,
   PromptResult,
+  TopCitedBrand,
+  BrandMention,
 } from "./types";
 
 export function getOverview(id: string) {
@@ -82,5 +87,17 @@ export function getHistory(id: string) {
 export function getPromptResults(id: string) {
   return fetchApi<{ prompts: PromptResult[] }>(
     `/api/analyses/${id}/prompts`
+  );
+}
+
+export function getTopCitedBrands(id: string) {
+  return fetchApi<{ brands: TopCitedBrand[] }>(
+    `/api/analyses/${id}/top-cited`
+  );
+}
+
+export function getBrandMentions(id: string) {
+  return fetchApi<{ brands: BrandMention[]; total: number }>(
+    `/api/analyses/${id}/brand-mentions`
   );
 }

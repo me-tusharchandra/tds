@@ -12,19 +12,30 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { Competitor } from "@/lib/types";
-import { ENGINE_LABELS } from "@/lib/types";
 
 interface Props {
   competitors: Competitor[];
 }
 
 export function CompetitorTable({ competitors }: Props) {
+  // Show primary brand + top 5 competitors (non-primary, sorted by visibility)
+  const primary = competitors.find((c) => c.is_primary);
+  const others = competitors
+    .filter((c) => !c.is_primary)
+    .sort((a, b) => (b.visibility_score || 0) - (a.visibility_score || 0))
+    .slice(0, 5);
+
+  const display = primary ? [primary, ...others] : others;
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-sm font-medium text-muted-foreground">
-          Competitor Rankings
+          Discovered Competitors
         </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Feature-similar companies found via Exa AI
+        </p>
       </CardHeader>
       <CardContent>
         <Table>
@@ -33,13 +44,13 @@ export function CompetitorTable({ competitors }: Props) {
               <TableHead className="w-8">#</TableHead>
               <TableHead>Brand</TableHead>
               <TableHead className="text-right">Visibility</TableHead>
-              <TableHead className="text-right">SOV</TableHead>
               <TableHead className="text-right">Citations</TableHead>
+              <TableHead className="text-right">Mentions</TableHead>
               <TableHead className="text-right">Avg Position</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {competitors.map((c, i) => (
+            {display.map((c, i) => (
               <TableRow
                 key={c.id}
                 className={c.is_primary ? "bg-primary/5 font-medium" : ""}
@@ -78,10 +89,10 @@ export function CompetitorTable({ competitors }: Props) {
                   </span>
                 </TableCell>
                 <TableCell className="text-right">
-                  {(c.share_of_voice || 0).toFixed(1)}%
+                  {c.citation_count || 0}
                 </TableCell>
                 <TableCell className="text-right">
-                  {c.citation_count || 0}
+                  {c.brand_mention_count ?? "-"}
                 </TableCell>
                 <TableCell className="text-right">
                   {c.avg_position ? c.avg_position.toFixed(1) : "-"}

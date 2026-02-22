@@ -1,10 +1,9 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Clock, ExternalLink } from "lucide-react";
+import { Clock } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import { BrandInput } from "@/components/brand-input";
 import { listAnalyses } from "@/lib/api";
 
@@ -12,6 +11,9 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "
   completed: "default",
   analyzing: "secondary",
   discovering: "secondary",
+  generating_prompts: "secondary",
+  querying_engines: "secondary",
+  scoring: "secondary",
   pending: "outline",
   failed: "destructive",
 };
@@ -25,69 +27,53 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Header */}
-      <header className="border-b">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-xl font-bold tracking-tight">TDS</h1>
-          <span className="text-sm text-muted-foreground">
-            AI Search Visibility Analytics
-          </span>
-        </div>
-      </header>
-
-      {/* Hero */}
-      <main className="flex-1 container mx-auto px-4 py-16">
-        <div className="flex flex-col items-center text-center gap-8 mb-16">
-          <div className="space-y-4 max-w-2xl">
-            <h2 className="text-4xl font-bold tracking-tight sm:text-5xl">
-              How visible is your brand in AI search?
-            </h2>
+      {/* Hero — full center */}
+      <main className="flex-1 flex flex-col items-center justify-center px-4">
+        <div className="flex flex-col items-center text-center gap-6 -mt-16">
+          <div className="space-y-3">
+            <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
+              Track your AI search visibility
+            </h1>
             <p className="text-lg text-muted-foreground">
-              Discover how AI engines like ChatGPT, Gemini, Perplexity, and Exa
-              reference your brand. Get visibility scores, competitor analysis,
-              and citation tracking.
+              If AI can&apos;t find you, you don&apos;t{" "}
+              <span className="font-semibold text-foreground">exist</span>
             </p>
           </div>
           <BrandInput />
         </div>
+      </main>
 
-        {/* Recent Analyses */}
-        {analyses && analyses.length > 0 && (
-          <div className="max-w-3xl mx-auto">
-            <h3 className="text-lg font-semibold mb-4">Recent Analyses</h3>
-            <div className="grid gap-3">
-              {analyses.map((a) => (
+      {/* Recent analyses — bottom strip */}
+      {analyses && analyses.length > 0 && (
+        <footer className="border-t bg-muted/30">
+          <div className="container mx-auto px-4 py-6">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-3">
+              Recent
+            </p>
+            <div className="flex flex-wrap gap-3">
+              {analyses.slice(0, 6).map((a) => (
                 <Link key={a.id} href={`/dashboard/${a.id}`}>
-                  <Card className="hover:bg-accent/50 transition-colors cursor-pointer">
-                    <CardContent className="flex items-center justify-between py-4">
-                      <div className="flex items-center gap-3">
-                        <ExternalLink className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                          <p className="font-medium">
-                            {a.brand_name || a.brand_url}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {a.brand_url}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <Badge variant={STATUS_VARIANT[a.status] || "outline"}>
-                          {a.status}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          {new Date(a.created_at).toLocaleDateString()}
-                        </span>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-background hover:bg-accent/50 transition-colors text-sm">
+                    <span className="font-medium truncate max-w-[180px]">
+                      {a.brand_name || a.brand_url}
+                    </span>
+                    <Badge
+                      variant={STATUS_VARIANT[a.status] || "outline"}
+                      className="text-[10px] px-1.5 py-0"
+                    >
+                      {a.status}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      {new Date(a.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
                 </Link>
               ))}
             </div>
           </div>
-        )}
-      </main>
+        </footer>
+      )}
     </div>
   );
 }

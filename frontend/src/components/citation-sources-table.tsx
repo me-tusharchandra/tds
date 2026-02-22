@@ -1,7 +1,9 @@
 "use client";
 
-import { ExternalLink } from "lucide-react";
+import { useState } from "react";
+import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -17,7 +19,10 @@ import { ENGINE_LABELS } from "@/lib/types";
 interface Props {
   citations: Citation[];
   total: number;
+  brandName?: string | null;
 }
+
+const PAGE_SIZE = 25;
 
 const ENGINE_BADGE_VARIANT: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
   openai: "default",
@@ -26,7 +31,12 @@ const ENGINE_BADGE_VARIANT: Record<string, "default" | "secondary" | "outline" |
   exa: "secondary",
 };
 
-export function CitationSourcesTable({ citations, total }: Props) {
+export function CitationSourcesTable({ citations, total, brandName }: Props) {
+  const [page, setPage] = useState(0);
+  const totalPages = Math.ceil(citations.length / PAGE_SIZE);
+  const start = page * PAGE_SIZE;
+  const paginated = citations.slice(start, start + PAGE_SIZE);
+
   return (
     <Card>
       <CardHeader>
@@ -43,12 +53,12 @@ export function CitationSourcesTable({ citations, total }: Props) {
             <TableRow>
               <TableHead>Engine</TableHead>
               <TableHead>Source</TableHead>
-              <TableHead>Matched Brand</TableHead>
+              <TableHead>Mentioned Brands</TableHead>
               <TableHead className="text-right">Position</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {citations.slice(0, 50).map((c) => (
+            {paginated.map((c) => (
               <TableRow key={c.id}>
                 <TableCell>
                   <Badge variant={ENGINE_BADGE_VARIANT[c.engine] || "outline"}>
@@ -77,8 +87,25 @@ export function CitationSourcesTable({ citations, total }: Props) {
                   </div>
                 </TableCell>
                 <TableCell>
-                  {c.competitor_name ? (
-                    <Badge variant="secondary">{c.competitor_name}</Badge>
+                  {(c.mentioned_brands?.length > 0) ? (
+                    <div className="flex flex-wrap gap-1">
+                      {c.mentioned_brands.slice(0, 3).map((b) => (
+                        <Badge
+                          key={b}
+                          variant={brandName && b.toLowerCase() === brandName.toLowerCase() ? "default" : "secondary"}
+                          className="text-xs"
+                        >
+                          {b}
+                        </Badge>
+                      ))}
+                      {c.mentioned_brands.length > 3 && (
+                        <Badge variant="outline" className="text-xs">
+                          +{c.mentioned_brands.length - 3} more
+                        </Badge>
+                      )}
+                    </div>
+                  ) : c.competitor_name ? (
+                    <Badge variant="secondary" className="text-xs">{c.competitor_name}</Badge>
                   ) : (
                     <span className="text-xs text-muted-foreground">-</span>
                   )}
@@ -90,10 +117,43 @@ export function CitationSourcesTable({ citations, total }: Props) {
             ))}
           </TableBody>
         </Table>
-        {total > 50 && (
-          <p className="text-xs text-muted-foreground mt-3 text-center">
-            Showing 50 of {total} citations
-          </p>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between mt-4">
+            <p className="text-xs text-muted-foreground">
+              Showing {start + 1}–{Math.min(start + PAGE_SIZE, citations.length)} of {citations.length} citations
+            </p>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={page === 0}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              {Array.from({ length: totalPages }, (_, i) => (
+                <Button
+                  key={i}
+                  variant={i === page ? "default" : "outline"}
+                  size="sm"
+                  className="w-8"
+                  onClick={() => setPage(i)}
+                >
+                  {i + 1}
+                </Button>
+              ))}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                disabled={page === totalPages - 1}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
         )}
       </CardContent>
     </Card>
