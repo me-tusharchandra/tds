@@ -85,10 +85,30 @@ function getStepState(stepKey: string, currentStatus: string): StepState {
 
 function StepIcon({ state }: { state: StepState }) {
   if (state === "completed")
-    return <Check className="h-5 w-5 text-green-500" />;
+    return (
+      <div className="h-5 w-5 rounded-full bg-green-500 flex items-center justify-center">
+        <Check className="h-3 w-3 text-white" />
+      </div>
+    );
   if (state === "in_progress")
-    return <Loader2 className="h-5 w-5 animate-spin text-primary" />;
-  return <Circle className="h-5 w-5 text-muted-foreground/40" />;
+    return <Loader2 className="h-5 w-5 animate-spin text-green-500" />;
+  return <Circle className="h-5 w-5 text-muted-foreground/30" />;
+}
+
+function StepBar({ state }: { state: StepState }) {
+  return (
+    <div className="ml-8 mt-1.5 h-1 rounded-full bg-muted overflow-hidden">
+      <div
+        className={
+          state === "completed"
+            ? "h-full w-full bg-green-500 transition-all duration-500"
+            : state === "in_progress"
+              ? "h-full w-2/3 bg-green-500/60 animate-pulse transition-all duration-500"
+              : "h-full w-0"
+        }
+      />
+    </div>
+  );
 }
 
 function StepDetail({
@@ -267,12 +287,13 @@ export default function DashboardPage() {
                               ? "text-muted-foreground"
                               : state === "in_progress"
                                 ? "font-medium"
-                                : ""
+                                : "text-green-600"
                           }
                         >
                           {step.label}
                         </span>
                       </div>
+                      <StepBar state={state} />
                       <StepDetail stepKey={step.key} state={state} progress={progress} />
                       {step.key === "querying_engines" && (
                         <EngineSubRows state={state} progress={progress} />

@@ -179,7 +179,7 @@ async def run_analysis(analysis_id: str, brand_url: str) -> None:
             nonlocal total_engine_completions
             async with semaphore:
                 try:
-                    search_text = prompt_row["prompt_text"]
+                    search_text = prompt_row["prompt_text"] + f" — {brand_info['name']}"
                     result = await module.search(
                         search_text, cost_tracker=costs
                     )

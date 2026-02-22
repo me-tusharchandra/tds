@@ -1,4 +1,5 @@
 import logging
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,9 +18,14 @@ from app.api.dashboard import router as dashboard_router
 
 app = FastAPI(title="TDS - AI Search Visibility Analytics", version="1.0.0")
 
+# CORS: configurable via CORS_ORIGINS env var (comma-separated), defaults to localhost:3000
+_default_origins = ["http://localhost:3000"]
+_cors_origins = os.getenv("CORS_ORIGINS", "").strip()
+allowed_origins = [o.strip() for o in _cors_origins.split(",") if o.strip()] if _cors_origins else _default_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

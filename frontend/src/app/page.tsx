@@ -34,7 +34,7 @@ export default function HomePage() {
             <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
               Track your AI search visibility
             </h1>
-            <p className="text-lg text-muted-foreground">
+            <p className="text-xl sm:text-2xl text-muted-foreground">
               If AI can&apos;t find you, you don&apos;t{" "}
               <span className="font-semibold text-foreground">exist</span>
             </p>
