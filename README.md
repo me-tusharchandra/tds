@@ -2,6 +2,11 @@
 
 Track how visible your brand is across AI search engines (ChatGPT, Gemini, Perplexity, Exa).
 
+# A Demo of the project can be found here: [click here!](https://youtu.be/UWQqr3DtERU)
+
+## System Architecture
+![System Architecture Diagram](arch.png)
+
 ## Prerequisites
 
 - Python 3.12+
