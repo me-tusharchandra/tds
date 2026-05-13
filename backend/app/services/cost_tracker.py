@@ -5,16 +5,20 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
-# Fallback per-call estimates when OpenRouter doesn't return cost
+# Fallback per-call estimates when the provider doesn't return cost
 FALLBACK_COSTS = {
-    "openai/gpt-4o": 0.006,  # ~$6/1K requests avg
-    "google/gemini-2.0-flash-001": 0.001,  # ~$1/1K requests avg
-    "perplexity/sonar": 0.005,  # ~$5/1K requests avg
-    "openai/gpt-4o-mini": 0.001,  # ~$1/1K requests avg
-    "web_search_plugin": 0.004,  # ~$4/1K web searches
-    "exa_search": 0.005,  # ~$5/1K searches
+    # OpenRouter-prefixed models
+    "openai/gpt-4o": 0.006,
+    "google/gemini-2.0-flash-001": 0.001,
+    "perplexity/sonar": 0.005,
+    "openai/gpt-4o-mini": 0.001,
+    # Native (direct provider) models
+    "gpt-4o-search-preview": 0.012,  # $10/1K calls + token costs
+    "gemini-2.5-flash": 0.0,  # free tier
+    "web_search_plugin": 0.004,
+    "exa_search": 0.005,
     "exa_find_similar": 0.005,
-    "exa_get_contents": 0.001,  # ~$1/1K content extractions
+    "exa_get_contents": 0.001,
 }
 
 

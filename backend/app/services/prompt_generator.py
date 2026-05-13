@@ -1,13 +1,9 @@
 import logging
 
-from openai import AsyncOpenAI
-
-from app.config import get_settings
 from app.services.cost_tracker import CostTracker, extract_cost_from_response
+from app.services.llm_client import get_llm
 
 logger = logging.getLogger(__name__)
-
-PROMPT_MODEL = "openai/gpt-4o-mini"
 
 
 async def generate_prompts(
@@ -22,15 +18,16 @@ async def generate_prompts(
     The goal is to test whether AI engines organically surface the brand
     when a user asks a natural category/use-case question.
     """
-    settings = get_settings()
+    llm = get_llm(kind="mini")
+    if llm is None:
+        logger.warning(
+            "Prompt generator: no LLM credentials — falling back to templates"
+        )
+        return _template_prompts(brand_description or brand_name, num_prompts)
 
     try:
-        client = AsyncOpenAI(
-            api_key=settings.openrouter_api_key,
-            base_url=settings.openrouter_base_url,
-        )
-        response = await client.chat.completions.create(
-            model=PROMPT_MODEL,
+        response = await llm.client.chat.completions.create(
+            model=llm.model,
             messages=[
                 {
                     "role": "system",
@@ -65,7 +62,7 @@ Generate {num_prompts} highly personalized discovery prompts. Make them sound li
 
         if cost_tracker:
             pt, ct, cost = extract_cost_from_response(response)
-            cost_tracker.record("prompt_gen", PROMPT_MODEL, pt, ct, cost)
+            cost_tracker.record("prompt_gen", llm.model, pt, ct, cost)
 
         raw = response.choices[0].message.content or ""
         prompts = []

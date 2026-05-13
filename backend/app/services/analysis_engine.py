@@ -28,6 +28,24 @@ ENGINE_MODULES = {
     "exa": exa_search,
 }
 
+
+def _active_engines(settings) -> dict:
+    """Engines that have a usable credential for this run.
+
+    Avoids spawning per-prompt tasks for engines we already know will skip.
+    """
+    has_or = bool(settings.openrouter_api_key)
+    active: dict = {}
+    if has_or or settings.openai_api_key:
+        active["openai"] = openai_search
+    if has_or or settings.gemini_api_key:
+        active["gemini"] = gemini_search
+    if has_or:
+        active["perplexity"] = perplexity_search
+    if settings.exa_api_key:
+        active["exa"] = exa_search
+    return active
+
 # Throttle: write engine progress to DB every N completions
 _ENGINE_PROGRESS_WRITE_INTERVAL = 4
 
@@ -155,16 +173,23 @@ async def run_analysis(analysis_id: str, brand_url: str) -> None:
 
         # ── Status: querying_engines ─────────────────────────────────
         num_prompts = len(db_prompts)
+        engines = _active_engines(settings)
+        skipped_engines = sorted(set(ENGINE_MODULES) - set(engines))
+        if skipped_engines:
+            logger.info(
+                f"[{analysis_id}] Skipping engines (no credentials): "
+                f"{', '.join(skipped_engines)}"
+            )
         engine_progress = {
             name: {"completed": 0, "total": num_prompts}
-            for name in ENGINE_MODULES
+            for name in engines
         }
         progress["engines"] = engine_progress
         _update_progress(db, analysis_id, progress, status="querying_engines")
 
         # Step 3: Run AI engine queries concurrently
         logger.info(
-            f"[{analysis_id}] Querying {len(ENGINE_MODULES)} AI engines across {num_prompts} prompts"
+            f"[{analysis_id}] Querying {len(engines)} AI engines across {num_prompts} prompts"
         )
         semaphore = asyncio.Semaphore(settings.max_concurrent_prompts)
         all_citations = []
@@ -242,7 +267,7 @@ async def run_analysis(analysis_id: str, brand_url: str) -> None:
                     engine_progress[engine_name]["completed"] += 1
                     total_engine_completions += 1
                     # Throttle DB writes: every N completions or on last completion
-                    total_tasks = num_prompts * len(ENGINE_MODULES)
+                    total_tasks = num_prompts * len(engines)
                     if (
                         total_engine_completions % _ENGINE_PROGRESS_WRITE_INTERVAL == 0
                         or total_engine_completions == total_tasks
@@ -252,7 +277,7 @@ async def run_analysis(analysis_id: str, brand_url: str) -> None:
 
         tasks = []
         for prompt_row in db_prompts:
-            for engine_name, module in ENGINE_MODULES.items():
+            for engine_name, module in engines.items():
                 tasks.append(
                     query_engine_for_prompt(engine_name, module, prompt_row)
                 )

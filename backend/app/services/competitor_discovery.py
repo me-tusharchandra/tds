@@ -2,11 +2,11 @@ import json
 import logging
 from urllib.parse import urlparse
 
-from openai import AsyncOpenAI
 from exa_py import Exa
 
 from app.config import get_settings
 from app.services.cost_tracker import CostTracker, extract_cost_from_response
+from app.services.llm_client import get_llm, get_search_llm
 
 logger = logging.getLogger(__name__)
 
@@ -89,17 +89,20 @@ async def _get_brand_info(
 
 
 async def _summarize_brand(
-    brand_name: str, brand_text: str, settings, cost_tracker: CostTracker | None
+    brand_name: str, brand_text: str, cost_tracker: CostTracker | None
 ) -> str:
     """Step 2: Use LLM to create a feature-focused summary."""
-    try:
-        logger.info(f"[Discovery] Step 2: Summarizing brand via LLM")
-        client = AsyncOpenAI(
-            api_key=settings.openrouter_api_key,
-            base_url=settings.openrouter_base_url,
+    logger.info(f"[Discovery] Step 2: Summarizing brand via LLM")
+    llm = get_llm(kind="mini")
+    if llm is None:
+        logger.warning(
+            "[Discovery]   No LLM credentials — skipping LLM brand summary"
         )
-        response = await client.chat.completions.create(
-            model="openai/gpt-4o-mini",
+        return ""
+
+    try:
+        response = await llm.client.chat.completions.create(
+            model=llm.model,
             messages=[
                 {
                     "role": "system",
@@ -119,7 +122,7 @@ async def _summarize_brand(
         )
         if cost_tracker:
             pt, ct, cost = extract_cost_from_response(response)
-            cost_tracker.record("brand_summary", "openai/gpt-4o-mini", pt, ct, cost)
+            cost_tracker.record("brand_summary", llm.model, pt, ct, cost)
         summary = response.choices[0].message.content.strip()
         logger.info(f"[Discovery]   LLM summary: {summary}")
         return summary
@@ -128,22 +131,27 @@ async def _summarize_brand(
         return ""
 
 
-async def _discover_via_perplexity(
+async def _discover_via_search_llm(
     brand_name: str,
     brand_description: str,
     brand_domain: str,
     num_results: int,
-    settings,
     cost_tracker: CostTracker | None,
 ) -> list[dict]:
-    """Step 3: Ask Perplexity to identify actual competitors.
-    Returns list of {name, url, reason}.
-    """
-    logger.info(f"[Discovery] Step 3: Asking Perplexity for competitors")
+    """Step 3: Ask a web-search-capable LLM to identify actual competitors.
 
-    client = AsyncOpenAI(
-        api_key=settings.openrouter_api_key,
-        base_url=settings.openrouter_base_url,
+    Uses Perplexity via OpenRouter when available, otherwise falls back to
+    OpenAI's gpt-4o-search-preview which has built-in web search.
+    """
+    llm = get_search_llm()
+    if llm is None:
+        logger.warning(
+            "[Discovery] Step 3 skipped: no search-capable LLM credentials available"
+        )
+        return []
+
+    logger.info(
+        f"[Discovery] Step 3: Asking {llm.provider}/{llm.model} for competitors"
     )
 
     prompt = f"""I need to find the top {num_results} direct competitors to "{brand_name}" ({brand_domain}).
@@ -163,25 +171,33 @@ Return a JSON array with objects containing:
 
 Return ONLY the JSON array, no other text."""
 
+    # Per-provider tuning: OpenRouter's perplexity/sonar accepts temperature/max_tokens;
+    # OpenAI's gpt-4o-search-preview needs web_search_options instead of plugins.
+    create_kwargs: dict = {
+        "model": llm.model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a competitive intelligence analyst. Return only valid JSON.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+    }
+    if llm.provider == "openrouter":
+        create_kwargs["max_tokens"] = 1000
+        create_kwargs["temperature"] = 0
+    else:
+        # gpt-4o-search-preview rejects temperature and exposes web_search_options
+        create_kwargs["web_search_options"] = {"search_context_size": "medium"}
+
     try:
-        response = await client.chat.completions.create(
-            model="perplexity/sonar",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a competitive intelligence analyst. Return only valid JSON.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=1000,
-            temperature=0,
-        )
+        response = await llm.client.chat.completions.create(**create_kwargs)
         if cost_tracker:
             pt, ct, cost = extract_cost_from_response(response)
-            cost_tracker.record("competitor_discovery", "perplexity/sonar", pt, ct, cost)
+            cost_tracker.record("competitor_discovery", llm.model, pt, ct, cost)
 
         raw = response.choices[0].message.content.strip()
-        logger.info(f"[Discovery]   Perplexity raw response:\n{raw}")
+        logger.info(f"[Discovery]   {llm.provider} raw response:\n{raw}")
 
         # Parse JSON — handle markdown code blocks
         if raw.startswith("```"):
@@ -189,22 +205,31 @@ Return ONLY the JSON array, no other text."""
             raw = raw.rsplit("```", 1)[0]
         raw = raw.strip()
 
+        # Strip markdown code fences the search model sometimes wraps JSON in.
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+            raw = raw.rsplit("```", 1)[0].strip()
+
         competitors = json.loads(raw)
         if not isinstance(competitors, list):
-            logger.warning(f"[Discovery]   Perplexity returned non-list: {type(competitors)}")
+            logger.warning(
+                f"[Discovery]   {llm.provider} returned non-list: {type(competitors)}"
+            )
             return []
 
-        logger.info(f"[Discovery]   Perplexity identified {len(competitors)} competitors:")
+        logger.info(
+            f"[Discovery]   {llm.provider} identified {len(competitors)} competitors:"
+        )
         for i, c in enumerate(competitors):
             logger.info(f"    [{i+1}] {c.get('name')} | {c.get('url')} | {c.get('reason', '')[:80]}")
 
         return competitors
 
     except json.JSONDecodeError as e:
-        logger.error(f"[Discovery]   Failed to parse Perplexity JSON: {e}")
+        logger.error(f"[Discovery]   Failed to parse {llm.provider} JSON: {e}")
         return []
     except Exception as e:
-        logger.error(f"[Discovery]   Perplexity competitor discovery failed: {e}")
+        logger.error(f"[Discovery]   {llm.provider} competitor discovery failed: {e}")
         return []
 
 
@@ -310,21 +335,20 @@ async def discover_competitors(
 
     # Step 2: LLM summarizes brand features
     brand_description = await _summarize_brand(
-        brand_name, brand_text or brand_summary, settings, cost_tracker
+        brand_name, brand_text or brand_summary, cost_tracker
     )
     if not brand_description:
         brand_description = brand_summary
     logger.info(f"[Discovery] Final brand description: {brand_description}")
 
-    # Step 3: Perplexity identifies competitors
-    perplexity_results = await _discover_via_perplexity(
-        brand_name, brand_description, brand_domain, num_results,
-        settings, cost_tracker,
+    # Step 3: Search-LLM identifies competitors (Perplexity if available, else gpt-4o-search-preview)
+    discovered_raw = await _discover_via_search_llm(
+        brand_name, brand_description, brand_domain, num_results, cost_tracker,
     )
 
     # Step 4: Enrich with Exa (descriptions, verified URLs, filtering)
     competitors = await _enrich_with_exa(
-        perplexity_results, brand_domain, exa, cost_tracker
+        discovered_raw, brand_domain, exa, cost_tracker
     )
 
     # If Perplexity returned too few, supplement with Exa find_similar

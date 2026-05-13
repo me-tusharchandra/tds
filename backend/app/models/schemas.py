@@ -63,6 +63,7 @@ class EngineScore(BaseModel):
     share_of_voice: float
     citation_count: int
     avg_position: Optional[float] = None
+    status: str = "ok"  # "ok" or "skipped" (engine didn't run — no credentials)
 
 
 class OverviewResponse(BaseModel):

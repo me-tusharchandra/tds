@@ -62,21 +62,49 @@ async def get_overview(analysis_id: str):
     overall_score = 0.0
     overall_sov = 0.0
     total_citations = 0
-    engine_scores = []
 
+    # Use progress.engines to know which engines actually ran this analysis.
+    # Engines absent from progress.engines were skipped due to missing credentials.
+    progress = analysis.get("progress") or {}
+    active_engines = set((progress.get("engines") or {}).keys())
+
+    scores_by_engine: dict[str, dict] = {}
     for s in scores_result.data:
         if s["engine"] == "overall":
             overall_score = s["visibility_score"] or 0
             overall_sov = s["share_of_voice"] or 0
             total_citations = s["citation_count"] or 0
         else:
+            scores_by_engine[s["engine"]] = s
+
+    # Return a card for every known engine. If progress shows it never ran,
+    # mark it skipped so the UI can render a static "no credit / no key" state
+    # instead of a misleading 0/0 with a loading bar. The skipped check runs
+    # first because scoring.py always emits a 0/0 row for every engine.
+    ALL_ENGINES = ["openai", "gemini", "perplexity", "exa"]
+    engine_scores = []
+    for engine_name in ALL_ENGINES:
+        if active_engines and engine_name not in active_engines:
             engine_scores.append(
                 EngineScore(
-                    engine=s["engine"],
+                    engine=engine_name,
+                    visibility_score=0,
+                    share_of_voice=0,
+                    citation_count=0,
+                    avg_position=None,
+                    status="skipped",
+                )
+            )
+        elif engine_name in scores_by_engine:
+            s = scores_by_engine[engine_name]
+            engine_scores.append(
+                EngineScore(
+                    engine=engine_name,
                     visibility_score=s["visibility_score"] or 0,
                     share_of_voice=s["share_of_voice"] or 0,
                     citation_count=s["citation_count"] or 0,
                     avg_position=s.get("avg_position"),
+                    status="ok",
                 )
             )
 

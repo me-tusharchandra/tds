@@ -4,15 +4,11 @@ import json
 import logging
 import re
 
-from openai import AsyncOpenAI
-
-from app.config import get_settings
 from app.services.competitor_discovery import EXCLUDED_DOMAINS
 from app.services.cost_tracker import CostTracker, extract_cost_from_response
+from app.services.llm_client import get_llm
 
 logger = logging.getLogger(__name__)
-
-MODEL = "openai/gpt-4o-mini"
 
 # Suffixes to strip when normalizing brand names
 _DOMAIN_SUFFIXES = re.compile(r"\.(com|io|ai|co|app|dev|org|net)$", re.IGNORECASE)
@@ -73,11 +69,12 @@ async def extract_brand_mentions(
     if not response_text or len(response_text.strip()) < 20:
         return []
 
-    settings = get_settings()
-    client = AsyncOpenAI(
-        api_key=settings.openrouter_api_key,
-        base_url=settings.openrouter_base_url,
-    )
+    llm = get_llm(kind="mini")
+    if llm is None:
+        logger.warning(
+            "[Brand Extractor] No LLM credentials available — skipping extraction"
+        )
+        return []
 
     # Build citation context for the prompt
     has_citations = bool(citations)
@@ -105,8 +102,8 @@ async def extract_brand_mentions(
     user_message = "\n".join(user_parts)
 
     try:
-        response = await client.chat.completions.create(
-            model=MODEL,
+        response = await llm.client.chat.completions.create(
+            model=llm.model,
             messages=[
                 {
                     "role": "system",
@@ -130,7 +127,7 @@ async def extract_brand_mentions(
 
         if cost_tracker:
             pt, ct, cost = extract_cost_from_response(response)
-            cost_tracker.record("brand_extraction", MODEL, pt, ct, cost)
+            cost_tracker.record("brand_extraction", llm.model, pt, ct, cost)
 
         raw = response.choices[0].message.content.strip()
 

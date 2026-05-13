@@ -10,10 +10,28 @@ logger = logging.getLogger(__name__)
 
 MODEL = "perplexity/sonar"
 
+SYSTEM_PROMPT = (
+    "Provide accurate, detailed information with citations. "
+    "List specific tools, platforms, and companies by name."
+)
+
 
 async def search(prompt: str, cost_tracker: CostTracker | None = None) -> SearchResult:
-    """Query Perplexity Sonar via OpenRouter and extract citations."""
+    """Query Perplexity Sonar via OpenRouter.
+
+    Perplexity has no free tier, so there is no native fallback. When the
+    OpenRouter key is unset this engine simply returns an empty result and
+    the rest of the pipeline continues without it.
+    """
     settings = get_settings()
+
+    if not settings.openrouter_api_key:
+        logger.info(
+            "Perplexity search skipped: requires OPENROUTER_API_KEY "
+            "(no native fallback — Perplexity API is paid-only)"
+        )
+        return SearchResult()
+
     client = AsyncOpenAI(
         api_key=settings.openrouter_api_key,
         base_url=settings.openrouter_base_url,
@@ -23,10 +41,7 @@ async def search(prompt: str, cost_tracker: CostTracker | None = None) -> Search
         response = await client.chat.completions.create(
             model=MODEL,
             messages=[
-                {
-                    "role": "system",
-                    "content": "Provide accurate, detailed information with citations. List specific tools, platforms, and companies by name.",
-                },
+                {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
         )

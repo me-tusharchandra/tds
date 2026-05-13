@@ -5,9 +5,11 @@ description = "TDS - AI Search Visibility Analytics Backend"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.6",
+    "starlette>=0.40,<0.48",
     "uvicorn[standard]>=0.34.0",
     "httpx>=0.28.1",
     "openai>=1.82.0",
+    "google-genai>=1.0.0",
     "exa-py>=1.9.1",
     "supabase>=2.13.0",
     "pydantic>=2.10.4",

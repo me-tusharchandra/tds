@@ -59,6 +59,7 @@ export interface EngineScore {
   share_of_voice: number;
   citation_count: number;
   avg_position: number | null;
+  status?: "ok" | "skipped";
 }
 
 export interface Overview {
